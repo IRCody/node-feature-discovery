@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/docopt/docopt-go"
@@ -60,17 +62,19 @@ func main() {
 	usage := fmt.Sprintf(`%s.
 
   Usage:
-  %s [--no-publish --sources=<sources>]
+  %s [--no-publish --sources=<sources> --label-whitelist=<pattern>]
   %s -h | --help
   %s --version
 
   Options:
-  -h --help           Show this screen.
-  --version           Output version and exit.
-  --sources=<sources> Comma separated list of feature sources.
-                      [Default: cpuid,rdt,pstate]
-  --no-publish        Do not publish discovered features to the cluster-local
-                      Kubernetes API server.`,
+  -h --help                   Show this screen.
+  --version                   Output version and exit.
+  --sources=<sources>         Comma separated list of feature sources.
+                              [Default: cpuid,rdt,pstate]
+  --no-publish                Do not publish discovered features to the cluster-local
+                              Kubernetes API server.
+  --label-whitelist=<pattern> Regex to apply to labels before adding.
+                              [Default: .*]`,
 		ProgramName,
 		ProgramName,
 		ProgramName,
@@ -83,6 +87,14 @@ func main() {
 	// Parse argument values as usable types.
 	noPublish := arguments["--no-publish"].(bool)
 	sourcesArg := strings.Split(arguments["--sources"].(string), ",")
+	wl := arguments["--label-whitelist"].(string)
+	labelWhiteList, err := regexp.Compile(wl)
+	if err != nil {
+		log.Fatalf("Error parsing white list regex: %s", err)
+	}
+	// REMOVE
+	fmt.Println(arguments)
+	fmt.Println(reflect.TypeOf(arguments["--sources"]))
 
 	enabledSources := map[string]struct{}{}
 	for _, s := range sourcesArg {
@@ -104,7 +116,6 @@ func main() {
 	}
 
 	labels := Labels{}
-
 	// Add the version of this discovery code as a node label
 	versionLabel := fmt.Sprintf("%s/%s.version", Namespace, ProgramName)
 	labels[versionLabel] = version
@@ -119,6 +130,10 @@ func main() {
 		}
 
 		for name, value := range labelsFromSource {
+			// Skip if doesn't match the labelWhiteList
+			if wl != "" && !labelWhiteList.Match([]byte(name)) {
+				continue
+			}
 			labels[name] = value
 			// Log discovered feature.
 			log.Printf("%s = %s", name, value)
